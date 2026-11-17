@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trading Desk · Live Bias</title>
+<style>
+:root{--bg:#0b0e13;--card:#131820;--line:#222a36;--tx:#e6eaf0;--mut:#8791a1;--up:#2ecc8f;--dn:#ff5c6c;--ac:#f0b429}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+h1{font-size:16px;margin:0}.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+#st{color:var(--mut);font-size:12px;text-align:right}
+main{max-width:1100px;margin:auto;padding:14px;display:grid;gap:14px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sym{font-weight:700;font-size:15px}.nm{color:var(--mut);font-size:12px}
+.px{font-size:24px;font-weight:700}.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}
+.pill{padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700;border:1px solid}
+.pill.b{color:var(--up);border-color:var(--up)}.pill.s{color:var(--dn);border-color:var(--dn)}.pill.n{color:var(--mut);border-color:var(--mut)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin-top:10px;font-size:13px}.kv span:nth-child(odd){color:var(--mut)}
+.bar{height:6px;background:var(--line);border-radius:6px;margin-top:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
+h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:0 0 8px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}th{color:var(--mut);font-weight:500}
+input,select,button{background:#0e131a;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;width:100%}
+button{background:var(--ac);color:#111;font-weight:700;cursor:pointer;border:0}
+.f{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+a{color:var(--ac)}.news li{margin:6px 0}.tick{animation:fl .6s}@keyframes fl{from{background:#f0b42933}}
+</style></head><body>
+<header><h1>Trading Desk <span class="mut">· NQ · ES · GC · DXY · VIX · 10Y · BTC</span></h1>
+<div style="display:flex;gap:10px;align-items:center"><button id="nb" onclick="enableAlerts()" style="width:auto;padding:6px 10px">🔔 Alerts</button><div id="st" class="mono">booting…</div></div></header>
+<main>
+<section><h2>Live bias &amp; Fib setups</h2><div id="cards" class="grid"></div></section>
+<section class="card"><h2>Alerts log</h2><div id="al" class="mono mut" style="font-size:12px">Tap “Alerts” to enable sound + notifications. You get pinged when a bias flips or price enters an entry zone.</div></section>
+<section class="card"><h2>Rates · FRED (optional)</h2><div class="f"><input id="fk" placeholder="Paste your free FRED API key"><button onclick="saveFred()">Save</button></div><div id="fr" class="mono mut" style="margin-top:8px;font-size:13px">No key yet. Get one free at fred.stlouisfed.org.</div></section>
+<section class="card"><h2>CFTC COT (legacy, futures only)</h2><div id="cot" class="mut">loading official CFTC data…</div></section>
+<section class="grid">
+<div class="card"><h2>Risk calculator</h2>
+<div class="f"><label>Balance $<input id="rb" type="number" value="10000"></label><label>Risk %<input id="rp" type="number" value="1" step="0.1"></label>
+<label>Contract<select id="rc"><option value="20">NQ ($20/pt)</option><option value="2">MNQ ($2/pt)</option><option value="50">ES ($50/pt)</option><option value="5">MES ($5/pt)</option><option value="100">GC ($100/pt)</option><option value="10">MGC ($10/pt)</option></select></label>
+<label>Entry<input id="re" type="number" step="any"></label><label>Stop<input id="rs" type="number" step="any"></label></div>
+<p id="ro" class="mono" style="margin:10px 0 0">Enter entry &amp; stop.</p></div>
+<div class="card"><h2>Journal (saved in your browser)</h2>
+<div class="f"><input id="js" placeholder="Symbol"><input id="jr" type="number" step="0.1" placeholder="Result in R"><button onclick="addTrade()">Add</button></div>
+<p id="jo" class="mono mut" style="margin:10px 0 0"></p></div>
+</section>
+<section class="card"><h2>Headlines · InvestingLive</h2><ul id="news" class="news mut" style="padding-left:18px;margin:0">loading…</ul></section>
+<p class="mut" style="font-size:12px">Data: Yahoo Finance (via free CORS relays), Binance, CFTC Socrata. Bias is a rules-based score (trend + momentum + COT), not advice. Always check price on your broker.</p>
+</main>
+<script>
+const SYMS=[
+ {k:'NQ',y:'NQ=F',n:'Nasdaq-100 futures',cot:'209742',d:2},
+ {k:'ES',y:'ES=F',n:'S&P 500 futures',cot:'13874A',d:2},
+ {k:'GC',y:'GC=F',n:'Gold futures',cot:'088691',d:2},
+ {k:'DXY',y:'DX-Y.NYB',n:'US Dollar Index',cot:'098662',d:3},
+ {k:'VIX',y:'^VIX',n:'Volatility Index',d:2},
+ {k:'10Y',y:'^TNX',n:'US 10Y yield (%)',d:3},
+ {k:'BTC',b:'BTCUSDT',n:'Bitcoin 24/7 (Binance)',d:2}
+];
+const D={},COT={};
+const RELAYS=[u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u),u=>'https://corsproxy.io/?'+encodeURIComponent(u),u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u)];
+async function ft(u,ms=4500){const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);try{const r=await fetch(u,{signal:c.signal});if(!r.ok)throw 0;return r}finally{clearTimeout(t)}}
+async function viaRelay(u,json=true){return Promise.any(RELAYS.map(async f=>{const r=await ft(f(u),6000);return json?await r.json():await r.text()}))}
+const ema=(a,n)=>{const k=2/(n+1);let e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e};
+async function load(s){
+ try{
+  let c=[],price;
+  if(s.b){
+   const r=await ft('https://data-api.binance.vision/api/v3/klines?symbol='+s.b+'&interval=1d&limit=40');
+   c=(await r.json()).map(x=>({o:+x[1],h:+x[2],l:+x[3],c:+x[4]}));price=c[c.length-1].c;
+  }else{
+   const j=await viaRelay('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(s.y)+'?interval=1d&range=3mo');
+   const r=j.chart.result[0],q=r.indicators.quote[0];
+   r.timestamp.forEach((t,i)=>{if(q.close[i]>0&&q.high[i]>0)c.push({o:q.open[i],h:q.high[i],l:q.low[i],c:q.close[i]})});
+   price=r.meta.regularMarketPrice;if(c.length)c[c.length-1].c=price;
+  }
+  if(c.length<12)throw 0;
+  const old=D[s.k]&&D[s.k].price;
+  D[s.k]={c,price,t:Date.now(),src:s.b?'BINANCE':'YAHOO',flash:old?(price>old?1:price<old?-1:0):0};
+ }catch(e){if(D[s.k])D[s.k].stale=true}
+}
+function analyse(s){
+ const d=D[s.k];if(!d)return null;
+ const c=d.c,n=c.length,cl=c.map(x=>x.c),p=d.price;
+ const e10=ema(cl,10),e20=ema(cl,20),prev=c[n-2],ref=cl[n-6]||cl[0];
+ let sc=0;sc+=p>e10?1:-1;sc+=e10>e20?1:-1;sc+=p>ref?1:-1;
+ const cot=COT[s.cot];if(cot){sc+=cot.idx>=65?1:cot.idx<=35?-1:0}
+ const bias=sc>=2?'BULL':sc<=-2?'BEAR':'NEUTRAL';
+ const H=prev.h,L=prev.l,R=H-L,f=v=>v.toFixed(s.d);
+ let z=null;
+ if(bias==='BULL')z={lo:H-.618*R,hi:H-.5*R,e:f(H-.618*R)+' – '+f(H-.5*R),sl:f(H-.786*R),tp:f(H+.272*R),tp2:f(H+.618*R)};
+ if(bias==='BEAR')z={lo:L+.5*R,hi:L+.618*R,e:f(L+.5*R)+' – '+f(L+.618*R),sl:f(L+.786*R),tp:f(L-.272*R),tp2:f(L-.618*R)};
+ const w=c.slice(-11,-1);let iL=0,iH=0;w.forEach((x,i)=>{if(x.l<=w[iL].l)iL=i;if(x.h>=w[iH].h)iH=i});
+ const chg=(p-prev.c)/prev.c*100;
+ return{bias,sc,z,R,step:R/16,dLow:w.length-1-iL,dHigh:w.length-1-iH,chg,p,cot,H,L};
+}
+function cardHTML(s){
+ const a=analyse(s),d=D[s.k];
+ if(!a)return `<div class="card"><div class="sym">${s.k}</div><div class="mut">loading live data…</div></div>`;
+ const cls=a.bias==='BULL'?'b':a.bias==='BEAR'?'s':'n';
+ const age=Math.round((Date.now()-d.t)/1000);
+ return `<div class="card ${d.flash?'tick':''}"><div class="row"><div><div class="sym">${s.k} <span class="nm">${s.n}</span></div>
+ <div class="px mono ${a.chg>=0?'up':'dn'}">${a.p.toLocaleString('en-US',{minimumFractionDigits:s.d,maximumFractionDigits:s.d})}</div></div>
+ <div style="text-align:right"><span class="pill ${cls}">${a.bias==='BULL'?'▲ BULLISH':a.bias==='BEAR'?'▼ BEARISH':'● NEUTRAL'} (${a.sc>0?'+':''}${a.sc})</span>
+ <div class="mono ${a.chg>=0?'up':'dn'}">${a.chg>=0?'+':''}${a.chg.toFixed(2)}%</div></div></div>
+ <div class="kv">
+ <span>Entry zone</span><span class="mono">${a.z?a.z.e:'wait for a bias'}</span>
+ <span>Stop</span><span class="mono">${a.z?a.z.sl:'–'}</span>
+ <span>Targets</span><span class="mono">${a.z?a.z.tp+' → '+a.z.tp2:'–'}</span>
+ <span>Prev. candle</span><span class="mono">H ${a.H.toFixed(s.d)} · L ${a.L.toFixed(s.d)} · 1/16 = ${a.step.toFixed(s.d)}</span>
+ <span>10-bar cycle</span><span class="mono">low ${a.dLow}d ago · high ${a.dHigh}d ago${(a.dLow>=8||a.dHigh>=8)?' · turn window':''}</span>
+ <span>COT index</span><span>${a.cot?`${a.cot.idx}/100 · net ${a.cot.net.toLocaleString('en-US')} (${a.cot.wow>=0?'+':''}${a.cot.wow.toLocaleString('en-US')})<div class="bar"><i style="width:${a.cot.idx}%"></i></div>`:'<span class="mut">n/a</span>'}</span>
+ </div><div class="mut" style="font-size:11px;margin-top:8px">${d.src} · ${age}s ago${d.stale?' · stale, retrying':''}</div></div>`;
+}
+function render(){document.getElementById('cards').innerHTML=SYMS.map(cardHTML).join('');Object.values(D).forEach(d=>d.flash=0);try{checkAlerts()}catch(e){}}
+let actx=null;const AS={},AL=[];
+function enableAlerts(){try{actx=actx||new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+ if('Notification' in window&&Notification.permission==='default')Notification.requestPermission();
+ document.getElementById('nb').textContent='🔔 On';ping('Alerts enabled')}
+function beep(){if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=880;g.gain.value=.15;o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+.25)}
+function ping(m){AL.unshift(new Date().toISOString().slice(11,19)+' UTC · '+m);AL.length=Math.min(AL.length,15);beep();
+ if('Notification' in window&&Notification.permission==='granted')try{new Notification('Trading Desk',{body:m})}catch(e){}
+ document.getElementById('al').innerHTML=AL.join('<br>')}
+function checkAlerts(){SYMS.forEach(s=>{const a=analyse(s);if(!a)return;const st=AS[s.k]=AS[s.k]||{};
+ if(st.bias&&st.bias!==a.bias)ping(s.k+' bias '+st.bias+' → '+a.bias);st.bias=a.bias;
+ if(a.z){const inz=a.p>=a.z.lo&&a.p<=a.z.hi;if(inz&&!st.inz)ping(s.k+' entered '+a.bias+' entry zone ('+a.z.e+')');st.inz=inz}else st.inz=false})}
+let FK='';try{FK=localStorage.getItem('td_fred')||''}catch(e){}
+function saveFred(){FK=fk.value.trim();try{localStorage.setItem('td_fred',FK)}catch(e){}loadFred()}
+async function loadFred(){
+ if(FK.length<10)return;const o=document.getElementById('fr');fk.value=FK;
+ const ids=[['DGS2','2Y'],['DGS10','10Y'],['T10Y2Y','10Y–2Y'],['DFF','Fed funds'],['VIXCLS','VIX']];let out=[];
+ await Promise.allSettled(ids.map(async([id,n])=>{const j=await viaRelay('https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+FK+'&file_type=json&sort_order=desc&limit=2');
+  const ob=j.observations.filter(x=>x.value!=='.');const v=+ob[0].value,d=v-(+ob[1].value);out.push([n,v,d,ob[0].date])}));
+ o.innerHTML=out.length?out.map(r=>`${r[0]}: <b>${r[1].toFixed(2)}</b> <span class="${r[2]>=0?'up':'dn'}">${r[2]>=0?'+':''}${r[2].toFixed(2)}</span> <span class="mut">(${r[3]})</span>`).join('<br>'):'FRED unreachable or key invalid.'}
+async function loadCot(){
+ const codes=SYMS.filter(s=>s.cot).map(s=>`'${s.cot}'`).join(',');
+ const u='https://publicreporting.cftc.gov/resource/6dca-aqww.json?$where='+encodeURIComponent('cftc_contract_market_code in('+codes+')')+'&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=400';
+ let rows;try{rows=await (await ft(u,8000)).json()}catch(e){try{rows=await viaRelay(u)}catch(e2){document.getElementById('cot').textContent='CFTC API unreachable right now, retrying…';return}}
+ const g={};rows.forEach(r=>(g[r.cftc_contract_market_code]=g[r.cftc_contract_market_code]||[]).push(r));
+ let html='<table><tr><th>Market</th><th>Non-comm net</th><th>WoW</th><th>Comm net</th><th>52w idx</th></tr>',date='';
+ SYMS.filter(s=>s.cot).forEach(s=>{
+  const l=(g[s.cot]||[]).sort((a,b)=>b.report_date_as_yyyy_mm_dd.localeCompare(a.report_date_as_yyyy_mm_dd));if(l.length<2)return;
+  const nn=r=>(+r.noncomm_positions_long_all||0)-(+r.noncomm_positions_short_all||0);
+  const nets=l.slice(0,52).map(nn),mn=Math.min(...nets),mx=Math.max(...nets),net=nets[0],wow=net-nets[1];
+  const idx=mx>mn?Math.round((net-mn)/(mx-mn)*100):50,comm=(+l[0].comm_positions_long_all||0)-(+l[0].comm_positions_short_all||0);
+  COT[s.cot]={net,wow,idx};date=l[0].report_date_as_yyyy_mm_dd.slice(0,10);
+  html+=`<tr><td>${s.k}</td><td class="mono">${net.toLocaleString('en-US')}</td><td class="mono ${wow>=0?'up':'dn'}">${wow>=0?'+':''}${wow.toLocaleString('en-US')}</td><td class="mono">${comm.toLocaleString('en-US')}</td><td class="mono">${idx}</td></tr>`});
+ document.getElementById('cot').innerHTML=html+`</table><div class="mut" style="margin-top:6px;font-size:12px">Report date: ${date} (released Fridays 15:30 ET)</div>`;render();
+}
+async function loadNews(){
+ const el=document.getElementById('news');
+ try{
+  const t=await viaRelay('https://investinglive.com/rss',false);
+  const x=new DOMParser().parseFromString(t,'text/xml');
+  const it=[...x.querySelectorAll('item')].slice(0,12);if(!it.length)throw 0;
+  el.className='news';el.innerHTML=it.map(i=>{const l=i.querySelector('link').textContent,tt=i.querySelector('title').textContent.replace(/[<>]/g,'');return `<li><a href="${l}" target="_blank" rel="noopener">${tt}</a></li>`}).join('');
+ }catch(e){el.innerHTML='<li>Feed unreachable right now. <a href="https://investinglive.com/live-feed/" target="_blank" rel="noopener">Open InvestingLive</a></li>'}
+}
+function risk(){
+ const b=+rb.value,p=+rp.value,v=+rc.value,e=+re.value,s=+rs.value,o=document.getElementById('ro');
+ if(!e||!s||e===s){o.textContent='Enter entry & stop.';return}
+ const pts=Math.abs(e-s),rd=b*p/100,n=Math.floor(rd/(pts*v));
+ o.innerHTML=`Risk $${rd.toFixed(0)} · stop ${pts.toFixed(2)} pts · <b>${n} contract${n===1?'':'s'}</b>${n<1?' (too small, use a micro)':''}`;
+}
+['rb','rp','rc','re','rs'].forEach(i=>document.getElementById(i).addEventListener('input',risk));
+let J=[];try{J=JSON.parse(localStorage.getItem('td_journal')||'[]')}catch(e){}
+function addTrade(){const s=js.value.trim(),r=parseFloat(jr.value);if(!s||isNaN(r))return;J.push({s,r,t:Date.now()});try{localStorage.setItem('td_journal',JSON.stringify(J))}catch(e){}js.value='';jr.value='';drawJ()}
+function drawJ(){const w=J.filter(x=>x.r>0).length,tot=J.reduce((a,x)=>a+x.r,0),gp=J.filter(x=>x.r>0).reduce((a,x)=>a+x.r,0),gl=-J.filter(x=>x.r<0).reduce((a,x)=>a+x.r,0);
+ jo.innerHTML=J.length?`${J.length} trades · win rate ${Math.round(w/J.length*100)}% · net ${tot.toFixed(1)}R · PF ${gl?(gp/gl).toFixed(2):'∞'}<br>${J.slice(-5).reverse().map(x=>x.s+' '+(x.r>0?'+':'')+x.r+'R').join(' · ')}`:'No trades yet.'}
+// 5s engine: BTC every tick via WebSocket, futures rotate 2 symbols per 5s so free relays are not rate-limited
+let cur=0,tick=0;
+async function cycle(){
+ const list=SYMS.filter(s=>!s.b);const batch=tick===0?SYMS:[...[0,1].map(i=>list[(cur+i)%list.length]),SYMS[SYMS.length-1]];
+ cur=(cur+2)%list.length;tick++;
+ await Promise.allSettled(batch.map(load));render();
+ document.getElementById('st').textContent='LIVE · '+new Date().toISOString().slice(11,19)+' UTC';
+}
+function ws(){try{const w=new WebSocket('wss://data-stream.binance.vision/ws/btcusdt@miniTicker');
+ w.onmessage=e=>{const m=JSON.parse(e.data),d=D.BTC;if(!d)return;const p=+m.c;d.flash=p>d.price?1:p<d.price?-1:0;d.price=p;d.c[d.c.length-1].c=p;d.t=Date.now();d.src='BINANCE WS'};
+ w.onclose=()=>setTimeout(ws,5000)}catch(e){}}
+setInterval(()=>{document.getElementById('st').textContent='LIVE · '+new Date().toISOString().slice(11,19)+' UTC'},1000);
+cycle();setInterval(cycle,5000);ws();setInterval(render,1000);
+loadCot();setInterval(loadCot,600000);loadFred();setInterval(loadFred,3600000);loadNews();setInterval(loadNews,120000);drawJ();
+</script></body></html>
